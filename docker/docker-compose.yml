@@ -1,0 +1,153 @@
+services:
+  mongo:
+    image: mongo
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - app-network
+
+  redis:
+    image: redis
+    ports:
+      - '6380:6379'
+    networks:
+      - app-network
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=fileadmin
+      - MINIO_ROOT_PASSWORD=fileadmin123
+    volumes:
+      - minio_data:/data
+    networks:
+      - app-network
+
+  media-converter:
+    build:
+      context: ../../media-converter
+      dockerfile: ../config/docker/media-converter.dockerfile
+    environment:
+      - NODE_ENV=production
+      - PORT=4100
+      - MEDIA_CONVERTER_WORK_ROOT=/work
+      - MEDIA_CONVERTER_TIMEOUT_MS=900000
+      - MEDIA_CONVERTER_MAX_OUTPUT_BYTES=131072
+      - MEDIA_CONVERTER_HWACCEL_MODE=auto
+      - MEDIA_CONVERTER_HWACCEL_PROFILES=qsv,vaapi
+      - MEDIA_CONVERTER_VAAPI_DEVICES=/dev/dri/renderD128,/dev/dri/card0
+    volumes:
+      - media_conversion_tmp:/work
+    networks:
+      - app-network
+
+  content-intelligence:
+    build:
+      context: ../../content-intelligence
+      dockerfile: ../config/docker/content-intelligence.dockerfile
+    environment:
+      - NODE_ENV=production
+      - PORT=4200
+      - CONTENT_INTELLIGENCE_WORK_ROOT=/work
+      - CONTENT_INTELLIGENCE_COMMAND_TIMEOUT_MS=480000
+      - CONTENT_INTELLIGENCE_REQUEST_TIMEOUT_MS=720000
+      - CONTENT_INTELLIGENCE_JSON_LIMIT=160mb
+    volumes:
+      - content_intelligence_tmp:/work
+    networks:
+      - app-network
+
+  backend:
+    build:
+      context: ../../backend
+      dockerfile: ../config/docker/backend.dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongo:27017/file_management
+      - JWT_SECRET=87bc165397c4b3a9181f5ce9f8b050cd2d6cc14d5d0fa7ed33197aa667adc081
+      - SESSION_SECRET=ad464r654sgfd6434gdf64sdf
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_PASSWORD=
+      - ENABLE_VIRUS_SCANNING=true
+      - STORAGE_PROVIDER=minio
+      - STORAGE_TEMP_ROOT=/tmp/file-management-storage
+      - MINIO_ENDPOINT=minio
+      - MINIO_PORT=9000
+      - MINIO_USE_SSL=false
+      - MINIO_ACCESS_KEY=fileadmin
+      - MINIO_SECRET_KEY=fileadmin123
+      - MINIO_BUCKET=file-management
+      - MEDIA_CONVERTER_URL=http://media-converter:4100
+      - MEDIA_CONVERSION_WORK_ROOT=/tmp/media-conversion
+      - MEDIA_CONVERSION_REQUEST_TIMEOUT_MS=960000
+      - CONTENT_INTELLIGENCE_SERVICE_URL=http://content-intelligence:4200
+      - CONTENT_INTELLIGENCE_WORK_ROOT=/tmp/file-management-content-intelligence
+      - CONTENT_INTELLIGENCE_REQUEST_TIMEOUT_MS=720000
+    volumes:
+      - ../../backend:/app
+      - /app/node_modules
+      - media_conversion_tmp:/tmp/media-conversion
+    networks:
+      - app-network
+    depends_on:
+      - mongo
+      - redis
+      - minio
+      - media-converter
+      - content-intelligence
+
+  nginx-backend:
+    image: nginx
+    ports:
+      - "5000:80"
+    volumes:
+      - ../../config/nginx/backend-nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+  nginx-frontend:
+    image: nginx
+    ports:
+      - "8082:80"
+    volumes:
+      - ../../frontend:/usr/share/nginx/html
+      - ../../config/nginx/frontend-nginx.conf:/etc/nginx/nginx.conf
+    networks:
+      - app-network
+
+  clamav:
+    image: clamav/clamav:latest
+    ports:
+      - "3312:3310"
+    volumes:
+      - clamav_data:/var/lib/clamav
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/clamdcheck.sh"]
+      interval: 60s
+      retries: 3
+      start_period: 120s
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  mongo_data:
+  clamav_data:
+  minio_data:
+  media_conversion_tmp:
+  content_intelligence_tmp:
