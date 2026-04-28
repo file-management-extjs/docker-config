@@ -127,6 +127,15 @@ services:
     networks:
       - app-network
 
+  landing-page:
+    build:
+      context: ../../landing
+      dockerfile: ../config/docker/landing.dockerfile
+    ports:
+      - "8083:80"
+    networks:
+      - app-network
+
   clamav:
     image: clamav/clamav:latest
     ports:

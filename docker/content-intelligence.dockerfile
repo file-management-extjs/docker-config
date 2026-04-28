@@ -15,6 +15,7 @@ RUN ALPINE_VERSION="$(cut -d. -f1,2 /etc/alpine-release)" && \
         poppler-utils \
         tesseract-ocr \
         tesseract-ocr-data-eng \
+        tesseract-ocr-data-ara \
         ghostscript \
         libreoffice-common \
         libreoffice-writer \
